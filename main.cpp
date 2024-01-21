@@ -17,7 +17,7 @@ template<typename T>
 class Layer
 {
     // Your implementation of the Layer class starts here
-} // Missing semicolon
+};
 
 template <typename T>
 class Net 

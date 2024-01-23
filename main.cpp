@@ -255,7 +255,7 @@ public:
     virtual ~Layer() = default;
 };
 
-template<typename T>
+template<typename T>    
 class Linear : public Layer<T> {
 private:
     int in_features, out_features, n_samples;
@@ -297,7 +297,11 @@ public:
 
     virtual Matrix<T> backward(const Matrix<T>& dy) override final {
         // Calculating gradients
-        bias_gradients = dy.sum(0); // Summing over samples for bias gradients
+        for (int i = 0; i < n_samples; ++i) {
+            for (int j = 0; j < out_features; ++j) {
+                bias_gradients.data[j] += dy[{i, j}];
+        }
+    }
         weights_gradients = cache.transpose() * dy;
 
         // Calculating downstream gradient
@@ -362,9 +366,10 @@ template<typename T>
 class Net {
 private:
     // Using smart pointers for automatic memory management
-    std::unique_ptr<Layer<T>> layer1;
-    std::unique_ptr<Layer<T>> layer2;
-    std::unique_ptr<Layer<T>> layer3;
+    Layer<T>* layer1;
+    Layer<T>* layer2;
+    Layer<T>* layer3;
+
 
 public:
     // Constructor
@@ -376,7 +381,11 @@ public:
     }
 
     // Destructor - default is fine since we're using smart pointers
-    ~Net() = default;
+    ~Net() {
+        delete layer1;
+        delete layer2;
+        delete layer3;
+    }
 
     // Forward function
     Matrix<T> forward(const Matrix<T>& x) {
@@ -405,6 +414,8 @@ public:
             linearLayer->optimize(learning_rate);
         }
     }
+
+
 };
 
 // Function to calculate the loss

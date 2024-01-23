@@ -294,8 +294,17 @@ public:
         std::cout << "Dimensions of x: " << x.getRows() << "x" << x.getCols() << std::endl;
         std::cout << "Dimensions of weights: " << weights.getRows() << "x" << weights.getCols() << std::endl;
         std::cout << "Dimensions of bias: " << bias.getRows() << "x" << bias.getCols() << std::endl;
+        Matrix<T> multiplied_result = x * weights;  // Result of matrix multiplication
+
+    // Broadcasting the bias across each row of the multiplied_result
+        for (int i = 0; i < multiplied_result.getRows(); ++i) {
+            for (int j = 0; j < multiplied_result.getCols(); ++j) {
+                multiplied_result[{i, j}] += bias[{0, j}];
+            }
+        }
+
         cache = x; // Storing x in cache for use in backward pass
-        return (x * weights) + bias; // y = x * w + b
+        return multiplied_result;
     }
 
     virtual Matrix<T> backward(const Matrix<T>& dy) override final {

@@ -1,6 +1,7 @@
 {
     "files.associations": {
         "tuple": "cpp",
-        "utility": "cpp"
+        "utility": "cpp",
+        "initializer_list": "cpp"
     }
 }

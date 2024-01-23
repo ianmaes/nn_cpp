@@ -26,7 +26,7 @@ class Matrix
     // std:initializer constructor
     Matrix(int rows, int cols, const std::initializer_list<T>& list) : nrows(rows), ncols(cols)
     {
-        if (list.size() != rows*cols)
+        if (list.size() != static_cast<typename std::initializer_list<T>::size_type>(rows * cols)) // chat did this
         {
             throw std::invalid_argument("Initializer list does not match matrix dimensions.");
         }
@@ -141,7 +141,7 @@ class Matrix
             result.data[i] = data[i] * x;
         }
         return result;
-    };
+    }
 
 
 
@@ -291,12 +291,17 @@ public:
     virtual ~Linear() {}
 
     virtual Matrix<T> forward(const Matrix<T>& x) override final {
+        std::cout << "Dimensions of x: " << x.getRows() << "x" << x.getCols() << std::endl;
+        std::cout << "Dimensions of weights: " << weights.getRows() << "x" << weights.getCols() << std::endl;
+        std::cout << "Dimensions of bias: " << bias.getRows() << "x" << bias.getCols() << std::endl;
         cache = x; // Storing x in cache for use in backward pass
         return (x * weights) + bias; // y = x * w + b
     }
 
     virtual Matrix<T> backward(const Matrix<T>& dy) override final {
         // Calculating gradients
+
+
         for (int i = 0; i < n_samples; ++i) {
             for (int j = 0; j < out_features; ++j) {
                 bias_gradients.data[j] += dy[{i, j}];
@@ -365,7 +370,6 @@ public:
 template<typename T>
 class Net {
 private:
-    // Using smart pointers for automatic memory management
     Layer<T>* layer1;
     Layer<T>* layer2;
     Layer<T>* layer3;
@@ -375,9 +379,9 @@ public:
     // Constructor
     Net(int in_features, int hidden_dim, int out_features, int n_samples, int seed) {
         // Initialize the layers
-        layer1 = std::make_unique<Linear<T>>(in_features, hidden_dim, n_samples, seed);
-        layer2 = std::make_unique<ReLU<T>>(hidden_dim, hidden_dim, n_samples);
-        layer3 = std::make_unique<Linear<T>>(hidden_dim, out_features, n_samples, seed);
+        layer1 = new Linear<T>(in_features, hidden_dim, n_samples, seed);
+        layer2 = new ReLU<T>(hidden_dim, hidden_dim, n_samples);
+        layer3 = new Linear<T>(hidden_dim, out_features, n_samples, seed);
     }
 
     // Destructor - default is fine since we're using smart pointers
@@ -405,14 +409,8 @@ public:
 
     // Optimize function
     void optimize(T learning_rate) {
-        // Assuming Linear layers have an optimize method
-        // dynamic_cast is used to ensure the layer is a Linear layer
-        if (auto linearLayer = dynamic_cast<Linear<T>*>(layer1.get())) {
-            linearLayer->optimize(learning_rate);
-        }
-        if (auto linearLayer = dynamic_cast<Linear<T>*>(layer3.get())) {
-            linearLayer->optimize(learning_rate);
-        }
+        static_cast<Linear<T>*>(layer1)->optimize(learning_rate);
+        static_cast<Linear<T>*>(layer3)->optimize(learning_rate);
     }
 
 
@@ -421,41 +419,133 @@ public:
 // Function to calculate the loss
 template <typename T>
 T MSEloss(const Matrix<T>& y_true, const Matrix<T>& y_pred) 
-{
-    // Your implementation of the MSEloss function starts here
+    {
+        if (y_true.getRows() != y_pred.getRows() || y_true.getCols() != y_pred.getCols()) {
+            throw std::invalid_argument("Dimensions of y_true and y_pred must be the same for MSE calculation.");
+        }
+
+        T sum = 0;
+        int total_elements = y_true.getRows() * y_true.getCols();
+
+        for (int i = 0; i < y_true.getRows(); ++i) {
+            for (int j = 0; j < y_true.getCols(); ++j) {
+                T diff = y_pred[{i, j}] - y_true[{i, j}];
+                sum += diff * diff;
+            }
+    }
+
+    return sum / total_elements; // Your implementation of the MSEloss function starts here
 };
 
 // Function to calculate the gradients of the loss
 template <typename T>
 Matrix<T> MSEgrad(const Matrix<T>& y_true, const Matrix<T>& y_pred) 
 {
-    // Your implementation of the MSEgrad function starts here
+    if (y_true.getRows() != y_pred.getRows() || y_true.getCols() != y_pred.getCols()) {
+        throw std::invalid_argument("Dimensions of y_true and y_pred must be the same for MSE gradient calculation.");
+    }
+
+    int nrows = y_true.getRows();
+    int ncols = y_true.getCols();
+    Matrix<T> grad(nrows, ncols);
+    T scale = 2.0 / (nrows * ncols);
+
+    for (int i = 0; i < nrows; ++i) {
+        for (int j = 0; j < ncols; ++j) {
+            grad[{i, j}] = scale * (y_pred[{i, j}] - y_true[{i, j}]);
+        }
+    }
+
+    return grad;
 }
 
 // Calculate the argmax 
 template <typename T>
 Matrix<T> argmax(const Matrix<T>& y) 
 {
-    // Your implementation of the argmax function starts here
+    Matrix<T> max(1, y.getCols());
+    for (int i = 0; i < y.getRows(); ++i)
+    {
+        T current_max = y[{i, 0}];
+       int current_max_index = 0;
+       for (int j = 0; j < y.getCols(); ++j) {
+            if (y[{i, j}] > current_max) {
+                current_max = y[{i, j}];
+                current_max_index = j;
+            }
+       }
+       max[{0, i}] = current_max_index;
+    }
+    return max;
 }
 
 // Calculate the accuracy of the prediction, using the argmax
 template <typename T>
 T get_accuracy(const Matrix<T>& y_true, const Matrix<T>& y_pred)
 {
-    // Your implementation of the get_accuracy starts here
+    if (y_true.getRows() != y_pred.getRows() || y_true.getCols() != y_pred.getCols()) {
+        throw std::invalid_argument("Dimensions of y_true and y_pred must be the same for accuracy calculation.");
+    }
+
+    Matrix<T> y_true_argmax = argmax(y_true);
+    Matrix<T> y_pred_argmax = argmax(y_pred);
+
+    int correct_predictions = 0;
+    for (int i = 0; i < y_true.getRows(); ++i) {
+        if (y_true_argmax[{0, i}] == y_pred_argmax[{0, i}]) {
+            ++correct_predictions;
+        }
+    }
+    return (double)correct_predictions / y_true.getRows();
 }
 
-int main(int argc, char* argv[])
-{
-    Matrix A(2, 2, {1., 0., 1., 1.});
-    Matrix B(2, 2, {2., 0., 0., 4.});
-    
+int main() {
+    // Initialize parameters
+    double learning_rate = 0.005;
+    int optimizer_steps = 100;
+    int seed = 1;
 
-    Matrix C = A*B;
-    for(int i = 0; i < 4; ++i)
-    {
-        std::cout << C.data[i] << " ";
+    // Initialize training data
+    Matrix<double> xxor(4, 2, {0, 0, 1, 0, 0, 1, 1, 1});
+    Matrix<double> yxor(4, 2, {1, 0, 0, 1, 0, 1, 1, 0});
+
+    // Initialize network dimensions
+    int in_features = 2;
+    int hidden_dim = 100;
+    int out_features = 2;
+
+    // Create the neural network
+    Net<double> net(in_features, hidden_dim, out_features, 4, seed);
+
+    // Lists to store losses and accuracies (optional)
+    std::vector<double> losses;
+    std::vector<double> accuracies;
+
+    // Training loop
+    for (int step = 0; step < optimizer_steps; ++step) {
+        // Forward step
+        auto y_pred = net.forward(xxor);
+
+        // Compute loss and gradients
+        double loss = MSEloss(yxor, y_pred);
+        auto loss_grad = MSEgrad(yxor, y_pred);
+
+        // Backward step
+        net.backward(loss_grad);
+
+        // Optimizer step
+        net.optimize(learning_rate);
+
+        // Calculate accuracy
+        double accuracy = get_accuracy(yxor, y_pred);
+
+        // Optionally store loss and accuracy
+        losses.push_back(loss);
+        accuracies.push_back(accuracy);
+
+        // Print loss and accuracy for each step
+        std::cout << "Step " << step << ": Loss = " << loss << ", Accuracy = " << accuracy << std::endl;
     }
+
     return 0;
 }

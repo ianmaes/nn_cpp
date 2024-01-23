@@ -26,7 +26,7 @@ class Matrix
     // std:initializer constructor
     Matrix(int rows, int cols, const std::initializer_list<T>& list) : nrows(rows), ncols(cols)
     {
-        if (list.size() != static_cast<typename std::initializer_list<T>::size_type>(rows * cols)) // chat did this
+        if (list.size() != rows * cols) // chat did
         {
             throw std::invalid_argument("Initializer list does not match matrix dimensions.");
         }
@@ -170,7 +170,8 @@ class Matrix
 
 
     // plus operator 
-    Matrix operator+(const Matrix& other) const 
+    template<typename U>
+    Matrix<typename std::common_type<T,U>::type> operator+(const Matrix<U>& B) const 
     {
         if (other.nrows != nrows || other.ncols != ncols)
         {
@@ -187,7 +188,8 @@ class Matrix
     }
 
     // min operator 
-    Matrix operator-(const Matrix& other) const 
+    template<typename U>
+    Matrix<typename std::common_type<T,U>::type> operator-(const Matrix<U>& B) const 
     {
         if (other.nrows != nrows || other.ncols != ncols)
         {
@@ -291,34 +293,41 @@ public:
     virtual ~Linear() {}
 
     virtual Matrix<T> forward(const Matrix<T>& x) override final {
-        std::cout << "Dimensions of x: " << x.getRows() << "x" << x.getCols() << std::endl;
-        std::cout << "Dimensions of weights: " << weights.getRows() << "x" << weights.getCols() << std::endl;
-        std::cout << "Dimensions of bias: " << bias.getRows() << "x" << bias.getCols() << std::endl;
-        Matrix<T> multiplied_result = x * weights;  // Result of matrix multiplication
+        // std::cout << "Dimensions of x: " << x.getRows() << "x" << x.getCols() << std::endl;
+        // std::cout << "Dimensions of weights: " << weights.getRows() << "x" << weights.getCols() << std::endl;
+        // std::cout << "Dimensions of bias: " << bias.getRows() << "x" << bias.getCols() << std::endl;
 
-    // Broadcasting the bias across each row of the multiplied_result
-        for (int i = 0; i < multiplied_result.getRows(); ++i) {
-            for (int j = 0; j < multiplied_result.getCols(); ++j) {
-                multiplied_result[{i, j}] += bias[{0, j}];
+        std::cout << "Multiply: " << x.getRows() << "x" << x.getCols() << " " <<  weights.getRows() << "x" << weights.getCols() << std::endl;
+        Matrix<T> output = x * weights; // output dimensions: n_samples x out_features
+
+        // Broadcasting the bias across each sample
+        for (int i = 0; i < output.getRows(); ++i) {
+            for (int j = 0; j < output.getCols(); ++j) {
+                output[{i, j}] += bias[{0, j}];
             }
         }
 
         cache = x; // Storing x in cache for use in backward pass
-        return multiplied_result;
+        return output;
     }
 
     virtual Matrix<T> backward(const Matrix<T>& dy) override final {
         // Calculating gradients
 
-
-        for (int i = 0; i < n_samples; ++i) {
-            for (int j = 0; j < out_features; ++j) {
-                bias_gradients.data[j] += dy[{i, j}];
+        // Reset bias gradients to zero
+        bias_gradients.fill(0);
+        std::cout << out_features << std::endl;
+        // Summing up the gradients for bias across all samples
+        for (int j = 0; j < out_features; ++j) {
+            for (int i = 0; i < dy.getRows(); ++i) {
+                std::cout << "I am at" << i << ", " << j << "when this happens" << std::endl;
+                bias_gradients[{0, j}] += dy[{i, j}];
+            }
         }
-    }
+        std::cout << "--------------------------------------------------------------------------------------------" << std::endl;
+        std::cout << "Multiply: " << cache.transpose().getRows() << "x" << cache.transpose().getCols() << " " <<  dy.getRows() << "x" << dy.getCols() << std::endl;
         weights_gradients = cache.transpose() * dy;
-
-        // Calculating downstream gradient
+        std::cout << "Multiply: " << dy.getRows() << "x" << dy.getCols() << " " <<  weights.transpose().getRows() << "x" << weights.transpose().getCols() << std::endl;
         return dy * weights.transpose(); // dL/dx = dL/dy * w^T
     }
 
@@ -370,7 +379,13 @@ public:
         }
 
         // Element-wise multiplication of dy and dReLU_dy
-        Matrix<T> downstream_gradient = dy * dReLU_dy; 
+        Matrix<T> downstream_gradient(dy.getRows(), dy.getCols());
+        for (int i = 0; i < dy.getRows(); ++i) {
+            for (int j = 0; j < dy.getCols(); ++j) {
+                downstream_gradient[{i, j}] = dy[{i, j}] * dReLU_dy[{i, j}];
+            }
+        }
+        
         return downstream_gradient;
     }
 };
@@ -410,9 +425,13 @@ public:
 
     // Backward function
     Matrix<T> backward(const Matrix<T>& dy) {
+        
         auto grad1 = layer3->backward(dy);
+        std::cout << "layer 3 backward succes" << std::endl;
         auto grad2 = layer2->backward(grad1);
+        std::cout << "layer 2 backward succes" << std::endl;
         auto grad3 = layer1->backward(grad2);
+        std::cout << "layer 1 backward succes" << std::endl;
         return grad3;
     }
 
@@ -461,7 +480,7 @@ Matrix<T> MSEgrad(const Matrix<T>& y_true, const Matrix<T>& y_pred)
 
     for (int i = 0; i < nrows; ++i) {
         for (int j = 0; j < ncols; ++j) {
-            grad[{i, j}] = scale * (y_pred[{i, j}] - y_true[{i, j}]);
+            grad[{i, j}] =  (y_pred[{i, j}] - y_true[{i, j}]) * scale;
         }
     }
 
@@ -472,18 +491,18 @@ Matrix<T> MSEgrad(const Matrix<T>& y_true, const Matrix<T>& y_pred)
 template <typename T>
 Matrix<T> argmax(const Matrix<T>& y) 
 {
-    Matrix<T> max(1, y.getCols());
+    Matrix<T> max(y.getRows(), 1);
     for (int i = 0; i < y.getRows(); ++i)
     {
         T current_max = y[{i, 0}];
-       int current_max_index = 0;
-       for (int j = 0; j < y.getCols(); ++j) {
+        int current_max_index = 0;
+        for (int j = 0; j < y.getCols(); ++j) {
             if (y[{i, j}] > current_max) {
                 current_max = y[{i, j}];
                 current_max_index = j;
             }
-       }
-       max[{0, i}] = current_max_index;
+        }
+        max[{i, 0}] = current_max_index;
     }
     return max;
 }
@@ -501,12 +520,13 @@ T get_accuracy(const Matrix<T>& y_true, const Matrix<T>& y_pred)
 
     int correct_predictions = 0;
     for (int i = 0; i < y_true.getRows(); ++i) {
-        if (y_true_argmax[{0, i}] == y_pred_argmax[{0, i}]) {
+        if (y_true_argmax[{i, 0}] == y_pred_argmax[{i, 0}]) {
             ++correct_predictions;
         }
     }
-    return (double)correct_predictions / y_true.getRows();
+    return static_cast<double>(correct_predictions) / y_true.getRows();
 }
+
 
 int main() {
     // Initialize parameters
@@ -533,18 +553,20 @@ int main() {
     // Training loop
     for (int step = 0; step < optimizer_steps; ++step) {
         // Forward step
+        std::cout << "I happen here 1" << std::endl;
         auto y_pred = net.forward(xxor);
-
+        std::cout << "I happen here 2" << std::endl;
         // Compute loss and gradients
         double loss = MSEloss(yxor, y_pred);
         auto loss_grad = MSEgrad(yxor, y_pred);
-
+        std::cout << "I happen here 3" << std::endl;
         // Backward step
         net.backward(loss_grad);
-
+        std::cout << "I happen here 4" << std::endl;
         // Optimizer step
         net.optimize(learning_rate);
 
+        std::cout << "I happen here 5" << std::endl;
         // Calculate accuracy
         double accuracy = get_accuracy(yxor, y_pred);
 

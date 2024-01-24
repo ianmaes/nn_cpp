@@ -7,6 +7,7 @@
 #include <stdexcept>
 #include <utility>     
 
+
 template <typename T>
 class Matrix
 {
@@ -15,29 +16,26 @@ class Matrix
     T* data;
 
     public:
-    Matrix() : nrows(0), ncols(0) {}
+    Matrix() : nrows(0), ncols(0), data(nullptr) {}
     
-    // initialize with size
-    Matrix(int rows, int cols) : nrows(rows), ncols(cols)
+    Matrix(int rows, int cols) : nrows(rows), ncols(cols) 
     {
         data = new T[nrows * ncols];
+        for (int i = 0; i < nrows * ncols; ++i) {
+            data[i] = 0; 
     }
+}   
 
-    // std:initializer constructor
-    Matrix(int rows, int cols, const std::initializer_list<T>& list) : nrows(rows), ncols(cols)
+
+    Matrix(int rows, int cols, const std::initializer_list<T>& list) : nrows(rows), ncols(cols) 
     {
-        if (list.size() != rows * cols) // chat did
-        {
+        if (static_cast<int>(list.size()) != nrows * ncols) {
             throw std::invalid_argument("Initializer list does not match matrix dimensions.");
         }
         
         data = new T[nrows * ncols];
 
-        int i = 0;
-        for (const auto& value : list)
-        {
-            data[i++] = value;
-        }
+        std::uninitialized_copy(list.begin(), list.end(), data); // Copying elements
     }
 
     // Copy constructor
@@ -168,42 +166,48 @@ class Matrix
     }
 
 
-
-    // plus operator 
+    // MATRIX plus operator with special handling of 1 row matrices
     template<typename U>
-    Matrix<typename std::common_type<T,U>::type> operator+(const Matrix<U>& B) const 
+    Matrix<typename std::common_type<T,U>::type> operator+(const Matrix<U>& B) const
     {
-        if (other.nrows != nrows || other.ncols != ncols)
+        if ((B.nrows != 1 && B.nrows != nrows) || B.ncols != ncols)
         {
-            throw std::invalid_argument("Matrices are not the same size!");
+            throw std::invalid_argument("Matrices are not compatible for addition!");
         }
 
-        Matrix s(nrows, ncols);
+        Matrix<typename std::common_type<T,U>::type> s(nrows, ncols);
         
-        for (int i = 0; i < nrows * ncols; ++i)
+        for (int i = 0; i < nrows; ++i)
         {
-            s.data[i] = data[i] + other.data[i];
+            for (int j = 0; j < ncols; ++j)
+            {
+                s.data[i * ncols + j] = data[i * ncols + j] + B.data[B.nrows == 1 ? j : (i * ncols + j)];
+            }
+        }
+        return s;
+    }
+    
+    // MATRIX minus operator with special handling of 1 row matrices
+    template<typename U>
+    Matrix<typename std::common_type<T,U>::type> operator-(const Matrix<U>& B) const
+    {
+        if ((B.nrows != 1 && B.nrows != nrows) || B.ncols != ncols)
+        {
+            throw std::invalid_argument("Matrices are not compatible for subtraction!");
+        }
+
+        Matrix<typename std::common_type<T,U>::type> s(nrows, ncols);
+        
+        for (int i = 0; i < nrows; ++i)
+        {
+            for (int j = 0; j < ncols; ++j)
+            {
+                s.data[i * ncols + j] = data[i * ncols + j] - B.data[B.nrows == 1 ? j : (i * ncols + j)];
+            }
         }
         return s;
     }
 
-    // min operator 
-    template<typename U>
-    Matrix<typename std::common_type<T,U>::type> operator-(const Matrix<U>& B) const 
-    {
-        if (other.nrows != nrows || other.ncols != ncols)
-        {
-            throw std::invalid_argument("Matrices are not the same size!");
-        }
-
-        Matrix s(nrows, ncols);
-        
-        for (int i = 0; i < nrows * ncols; ++i)
-        {
-            s.data[i] = data[i] - other.data[i];
-        }
-        return s;
-    }
 
     // Fill matrix with a value
     void fill(const T& value) {
@@ -241,22 +245,21 @@ class Matrix
 
 };
 
+// Layer class
 template <typename T>
 class Layer {
 public:
 
-    // Pure virtual function for forward propagation
-    // Takes a Matrix<T> as input and returns a Matrix<T>
+    // virtual function for forward propagation
     virtual Matrix<T> forward(const Matrix<T>& x) = 0;
 
-    // Pure virtual function for backward propagation
-    // Takes a Matrix<T> as input and returns a Matrix<T>
+    // virtual function for backward propagation
     virtual Matrix<T> backward(const Matrix<T>& dy) = 0;
-
 
     virtual ~Layer() = default;
 };
 
+// Linear class for linear nn layer
 template<typename T>    
 class Linear : public Layer<T> {
 private:
@@ -284,60 +287,52 @@ public:
             bias[{0, j}] = distribution_uniform(generator);
         }
 
-        // Initialize gradients to zero
-        // Assume Matrix class has method to fill with zeros
+        // Set gradients to zero
         bias_gradients.fill(0);
         weights_gradients.fill(0);
     }
 
+    // Destructor linear layer. 
     virtual ~Linear() {}
-
+    
+    // Linear layer forward function. 
     virtual Matrix<T> forward(const Matrix<T>& x) override final {
-        // std::cout << "Dimensions of x: " << x.getRows() << "x" << x.getCols() << std::endl;
-        // std::cout << "Dimensions of weights: " << weights.getRows() << "x" << weights.getCols() << std::endl;
-        // std::cout << "Dimensions of bias: " << bias.getRows() << "x" << bias.getCols() << std::endl;
+        // std::cout << "Multiply: " << x.getRows() << "x" << x.getCols() << " " <<  weights.getRows() << "x" << weights.getCols() << std::endl;
+        Matrix<T> output = x * weights;
 
-        std::cout << "Multiply: " << x.getRows() << "x" << x.getCols() << " " <<  weights.getRows() << "x" << weights.getCols() << std::endl;
-        Matrix<T> output = x * weights; // output dimensions: n_samples x out_features
+        output = output + bias;
 
-        // Broadcasting the bias across each sample
-        for (int i = 0; i < output.getRows(); ++i) {
-            for (int j = 0; j < output.getCols(); ++j) {
-                output[{i, j}] += bias[{0, j}];
-            }
-        }
-
-        cache = x; // Storing x in cache for use in backward pass
+        cache = x;
         return output;
     }
-
+    
+    // Backward function of the linear layer 
     virtual Matrix<T> backward(const Matrix<T>& dy) override final {
-        // Calculating gradients
 
-        // Reset bias gradients to zero
         bias_gradients.fill(0);
-        std::cout << out_features << std::endl;
-        // Summing up the gradients for bias across all samples
+        Matrix<T> bias_dy_sum = Matrix<T>(1, out_features);
         for (int j = 0; j < out_features; ++j) {
             for (int i = 0; i < dy.getRows(); ++i) {
-                std::cout << "I am at" << i << ", " << j << "when this happens" << std::endl;
                 bias_gradients[{0, j}] += dy[{i, j}];
-            }
         }
-        std::cout << "--------------------------------------------------------------------------------------------" << std::endl;
-        std::cout << "Multiply: " << cache.transpose().getRows() << "x" << cache.transpose().getCols() << " " <<  dy.getRows() << "x" << dy.getCols() << std::endl;
+    }   
+    
+        bias_gradients = bias_dy_sum;
+
+        // std::cout << "Multiply: " << cache.transpose().getRows() << "x" << cache.transpose().getCols() << " " <<  dy.getRows() << "x" << dy.getCols() << std::endl;
         weights_gradients = cache.transpose() * dy;
-        std::cout << "Multiply: " << dy.getRows() << "x" << dy.getCols() << " " <<  weights.transpose().getRows() << "x" << weights.transpose().getCols() << std::endl;
+        // std::cout << "Multiply: " << dy.getRows() << "x" << dy.getCols() << " " <<  weights.transpose().getRows() << "x" << weights.transpose().getCols() << std::endl;
         return dy * weights.transpose(); // dL/dx = dL/dy * w^T
     }
-
-    void optimize(T learning_rate) {
+        void optimize(T learning_rate) {
         // Update weights and bias using gradients
         weights = weights - (weights_gradients * learning_rate);
         bias = bias - (bias_gradients * learning_rate);
     }
 };
 
+
+// ReLU class for ReLU nn layer
 template<typename T>
 class ReLU : public Layer<T> {
 private:
@@ -345,6 +340,8 @@ private:
     Matrix<T> cache;
 
 public:
+    // Initializer
+    
     ReLU(int in_features, int out_features, int n_samples)
         : in_features(in_features), out_features(out_features), n_samples(n_samples),
           cache(n_samples, in_features) {
@@ -354,8 +351,10 @@ public:
         }
     }
 
+    // Destructor Relu layer
     virtual ~ReLU() {}
 
+    // The forward function for the ReLu layer. 
     virtual Matrix<T> forward(const Matrix<T>& x) override final {
         cache = x;
         Matrix<T> output(x.getRows(), x.getCols());
@@ -369,6 +368,7 @@ public:
         return output;
     }
 
+    // The backward function for the Relu Layer
     virtual Matrix<T> backward(const Matrix<T>& dy) override final {
         Matrix<T> dReLU_dy(cache.getRows(), cache.getCols());
 
@@ -390,7 +390,7 @@ public:
     }
 };
 
-
+// The Net class
 template<typename T>
 class Net {
 private:
@@ -427,11 +427,8 @@ public:
     Matrix<T> backward(const Matrix<T>& dy) {
         
         auto grad1 = layer3->backward(dy);
-        std::cout << "layer 3 backward succes" << std::endl;
         auto grad2 = layer2->backward(grad1);
-        std::cout << "layer 2 backward succes" << std::endl;
         auto grad3 = layer1->backward(grad2);
-        std::cout << "layer 1 backward succes" << std::endl;
         return grad3;
     }
 
@@ -444,7 +441,7 @@ public:
 
 };
 
-// Function to calculate the loss
+// Function to calculate the MSE loss.
 template <typename T>
 T MSEloss(const Matrix<T>& y_true, const Matrix<T>& y_pred) 
     {
@@ -462,10 +459,10 @@ T MSEloss(const Matrix<T>& y_true, const Matrix<T>& y_pred)
             }
     }
 
-    return sum / total_elements; // Your implementation of the MSEloss function starts here
+    return sum / total_elements;
 };
 
-// Function to calculate the gradients of the loss
+// Function to calculate the gradients of the loss.
 template <typename T>
 Matrix<T> MSEgrad(const Matrix<T>& y_true, const Matrix<T>& y_pred) 
 {
@@ -487,7 +484,7 @@ Matrix<T> MSEgrad(const Matrix<T>& y_true, const Matrix<T>& y_pred)
     return grad;
 }
 
-// Calculate the argmax 
+// Calculate the argmax.
 template <typename T>
 Matrix<T> argmax(const Matrix<T>& y) 
 {
@@ -527,7 +524,7 @@ T get_accuracy(const Matrix<T>& y_true, const Matrix<T>& y_pred)
     return static_cast<double>(correct_predictions) / y_true.getRows();
 }
 
-
+// Main loop with the training.
 int main() {
     // Initialize parameters
     double learning_rate = 0.005;
@@ -553,20 +550,15 @@ int main() {
     // Training loop
     for (int step = 0; step < optimizer_steps; ++step) {
         // Forward step
-        std::cout << "I happen here 1" << std::endl;
         auto y_pred = net.forward(xxor);
-        std::cout << "I happen here 2" << std::endl;
         // Compute loss and gradients
         double loss = MSEloss(yxor, y_pred);
         auto loss_grad = MSEgrad(yxor, y_pred);
-        std::cout << "I happen here 3" << std::endl;
         // Backward step
         net.backward(loss_grad);
-        std::cout << "I happen here 4" << std::endl;
         // Optimizer step
         net.optimize(learning_rate);
 
-        std::cout << "I happen here 5" << std::endl;
         // Calculate accuracy
         double accuracy = get_accuracy(yxor, y_pred);
 
@@ -579,4 +571,4 @@ int main() {
     }
 
     return 0;
-}
+};
